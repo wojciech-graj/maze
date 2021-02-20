@@ -24,7 +24,7 @@ typedef struct Maze {
 enum cell_bitmasks{N, E, S, W, V};
 const byte BITMASKS[5] = {[N]=0x01, [E]=0x02, [S]=0x04, [W]=0x08, [V]=0x0F};
 const size_t INV_DIRECTIONS[4] = {[N]=S, [E]=W, [S]=N, [W]=E};
-const wchar_t SYMBOLS[] = {'  ', 0x2579, 0x257a, 0x2517, 0x257b, 0x2503, 0x250f, 0x2523, 0x2578, 0x251b, 0x2501, 0x253b, 0x2513, 0x252b, 0x2533, 0x254b};
+const wchar_t SYMBOLS[] = {' ', 0x2579, 0x257a, 0x2517, 0x257b, 0x2503, 0x250f, 0x2523, 0x2578, 0x251b, 0x2501, 0x253b, 0x2513, 0x252b, 0x2533, 0x254b};
 
 unsigned rand_int(unsigned max)
 {
@@ -119,6 +119,36 @@ void maze_generate_rdfs(Maze *maze)
      maze_cell_remove_edge(maze, maze->out);
 }
 
+//generate maze using Ranomized Prim's algorithm
+//has been modified to not select random walls but random walls from random visited cells
+void maze_generate_rprim(Maze *maze)
+{
+    maze_cell_remove_edge(maze, maze->in);
+    size_t list_size = 1;
+    byte *list[maze->width * maze->height];
+    list[0] = maze->in;
+    while(list_size > 0) {
+        size_t list_loc = rand_int(list_size), direction, num_neighbors = 0, neighbor_directions[3];
+        byte *neighbors[3];
+        for(direction = 0; direction < 4; direction++) {
+            byte *cell = maze_get_cell_in_direction(maze, list[list_loc], direction);
+            if(cell)
+               if(! (*cell && BITMASKS[V])) {
+                   neighbor_directions[num_neighbors] = direction;
+                   neighbors[num_neighbors++] = cell;
+               }
+        }
+        if(num_neighbors) {
+            size_t index = rand_int(num_neighbors);
+            *list[list_loc] |= BITMASKS[neighbor_directions[index]];
+            *neighbors[index] |= BITMASKS[INV_DIRECTIONS[neighbor_directions[index]]];
+            list[list_size++] = neighbors[index];
+        } else
+           memmove(&list[list_loc], &list[list_loc + 1], sizeof(byte*) * (list_size-- - list_loc));
+    }
+    maze_cell_remove_edge(maze, maze->out);
+}
+
 void maze_print(Maze *maze)
 {
     size_t x, y, i = 0;
@@ -158,9 +188,8 @@ void maze_save_image(Maze *maze, char *filename)
 
     fprintf(file, "P4\n%ld %ld\n", img_width, img_height);
     fwrite(img, 1, bytes_per_row * img_height, file);
+    fclose(file);
 }
-
-
 
 int main(int argc, char *argv[])
 {
@@ -170,12 +199,13 @@ int main(int argc, char *argv[])
     srand(time(NULL));
     setlocale(LC_ALL, "");
 
-    Maze *maze = maze_new(10, 10);
+    Maze *maze = maze_new(30, 30);
     maze->in = maze_get_cell(maze, 0, 1);
-    maze->out = maze_get_cell(maze, 0, 8);
-    maze_generate_rdfs(maze);
-    maze_print(maze);
+    maze->out = maze_get_cell(maze, 29, 28);
+    maze_generate_rprim(maze);
+
     maze_save_image(maze, "img.pbm");
+    maze_print(maze);
 
     return 0;
 }
