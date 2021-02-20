@@ -15,6 +15,8 @@ typedef struct Maze {
     3 - S - South
     4 - W - West
 
+    bit set - path exists
+
     Additional bitmasks:
     V - Visited (checks if any direction bits are set)
 */
@@ -22,7 +24,7 @@ typedef struct Maze {
 enum cell_bitmasks{N, E, S, W, V};
 const byte BITMASKS[5] = {[N]=0x01, [E]=0x02, [S]=0x04, [W]=0x08, [V]=0x0F};
 const size_t INV_DIRECTIONS[4] = {[N]=S, [E]=W, [S]=N, [W]=E};
-const wchar_t SYMBOLS[] = {' ', 0x2579, 0x257a, 0x2517, 0x257b, 0x2503, 0x250f, 0x2523, 0x2578, 0x251b, 0x2501, 0x253b, 0x2513, 0x252b, 0x2533, 0x254b};
+const wchar_t SYMBOLS[] = {'  ', 0x2579, 0x257a, 0x2517, 0x257b, 0x2503, 0x250f, 0x2523, 0x2578, 0x251b, 0x2501, 0x253b, 0x2513, 0x252b, 0x2533, 0x254b};
 
 unsigned rand_int(unsigned max)
 {
@@ -127,6 +129,39 @@ void maze_print(Maze *maze)
     }
 }
 
+void maze_save_image(Maze *maze, char *filename)
+{
+    FILE *file = fopen(filename, "wb");
+    assert(file);
+
+    size_t img_width = 2 * maze->width + 1,
+        img_height = 2 * maze->height + 1,
+        bytes_per_row = ((img_width + 7) & ~0x07) / 8,
+        i, j;
+    byte img[img_height][bytes_per_row];
+
+    //set corners and unset rest
+    for(i = 0; i < img_height; i ++)
+        memset(img[i], (i & 0x01) ? 0x00 : 0xaa, bytes_per_row);
+
+    //TODO: optimize this
+    //set cell sides
+    for(i = 0; i < maze->height; i++)
+        for(j = 0; j < maze->width; j++) {
+            byte cell = maze->cells[i * maze->width + j];
+            size_t x_l = 2 * j, x_m = 2 * j + 1, x_r = 2 * j + 2;
+            img[2 * i][x_m / 8] |= ((cell & BITMASKS[N]) == 0) << (7 - (x_m & 0x07));
+            img[2 * i + 1][x_l / 8] |= ((cell & BITMASKS[W]) == 0) << (7 - (x_l & 0x07));
+            img[2 * i + 1][x_r / 8] |= ((cell & BITMASKS[E]) == 0) << (7 - (x_r & 0x07));
+            img[2 * i + 2][x_m / 8] |= ((cell & BITMASKS[S]) == 0) << (7 - (x_m & 0x07));
+        }
+
+    fprintf(file, "P4\n%ld %ld\n", img_width, img_height);
+    fwrite(img, 1, bytes_per_row * img_height, file);
+}
+
+
+
 int main(int argc, char *argv[])
 {
     (void) argc;
@@ -140,6 +175,7 @@ int main(int argc, char *argv[])
     maze->out = maze_get_cell(maze, 0, 8);
     maze_generate_rdfs(maze);
     maze_print(maze);
+    maze_save_image(maze, "img.pbm");
 
     return 0;
 }

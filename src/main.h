@@ -7,5 +7,8 @@
 #include <stddef.h>
 #include <wchar.h>
 #include <locale.h>
+#include <assert.h>
+#include <math.h>
+#include <string.h>
 
 #endif
