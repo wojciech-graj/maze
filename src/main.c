@@ -2,11 +2,19 @@
 
 typedef unsigned char byte;
 
-typedef struct Maze {
+typedef struct {
     size_t width, height;
     byte *in, *out;
     byte cells[];
 } Maze;
+
+typedef struct {
+    size_t total;
+    size_t dead_ends;
+    size_t corridors;
+    size_t junctions;
+    size_t crossroads;
+} MazeStats;
 
 /*
     Cell bits:
@@ -274,6 +282,51 @@ void maze_save_image(Maze *maze, char *filename)
     fclose(file);
 }
 
+MazeStats *maze_stats_new(void)
+{
+    return calloc(1, sizeof(MazeStats));
+}
+
+void maze_stats_delete(MazeStats *stats)
+{
+    free(stats);
+}
+
+void maze_stats_generate(Maze *maze, MazeStats *stats)
+{
+    stats->total += maze->height * maze->width;
+    size_t i;
+    for(i = 0; i < stats->total; i++) {
+        size_t j, num_bits = 0;
+        for(j = 0; j < 4; j++)
+            num_bits += ((maze->cells[i] & BITMASKS[j]) != 0);
+        switch(num_bits) {
+            case 1:
+            stats->dead_ends++;
+            break;
+            case 2:
+            stats->corridors++;
+            break;
+            case 3:
+            stats->junctions++;
+            break;
+            case 4:
+            stats->crossroads++;
+            break;
+        }
+    }
+}
+
+void maze_stats_print(MazeStats *stats)
+{
+    printf(MAZE_STATS_PRINT_FORMAT,
+        stats->total,
+        stats->dead_ends, 100. * stats->dead_ends / stats->total,
+        stats->corridors, 100. * stats->corridors / stats->total,
+        stats->junctions, 100. * stats->junctions / stats->total,
+        stats->crossroads, 100. * stats->crossroads / stats->total);
+}
+
 int main(int argc, char *argv[])
 {
     (void) argc;
@@ -286,9 +339,15 @@ int main(int argc, char *argv[])
     maze->in = maze_get_cell(maze, 0, 1);
     maze->out = maze_get_cell(maze, 29, 28);
     maze_generate_wilson(maze);
-
     maze_save_image(maze, "img.pbm");
     maze_print(maze);
+
+    MazeStats *stats = maze_stats_new();
+    maze_stats_generate(maze, stats);
+    maze_stats_print(stats);
+
+    maze_delete(maze);
+    maze_stats_delete(stats);
 
     return 0;
 }
