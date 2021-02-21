@@ -11,4 +11,6 @@
 #include <math.h>
 #include <string.h>
 
+#define VISITED(val) (val & BITMASKS[V])
+
 #endif

@@ -59,7 +59,12 @@ size_t maze_maze_get_y(Maze *maze, byte *cell)
     return (cell - maze->cells) / maze->width;
 }
 
-void maze_cell_remove_edge(Maze *maze, byte *cell)
+size_t maze_get_cell_index(Maze *maze, byte *cell)
+{
+    return cell - maze->cells;
+}
+
+void maze_remove_edge_wall(Maze *maze, byte *cell)
 {
     size_t in_x = maze_get_x(maze, cell);
     if(in_x == 0)
@@ -73,6 +78,12 @@ void maze_cell_remove_edge(Maze *maze, byte *cell)
         else
             *cell |= BITMASKS[S];
     }
+}
+
+void maze_remove_wall(byte *src, byte *dest, size_t direction)
+{
+    *src |= BITMASKS[direction];
+    *dest |= BITMASKS[INV_DIRECTIONS[direction]];
 }
 
 byte *maze_get_cell_in_direction(Maze *maze, byte *cell, size_t direction)
@@ -93,60 +104,128 @@ byte *maze_get_cell_in_direction(Maze *maze, byte *cell, size_t direction)
 //generate maze using Randomized Depth-First Search
 void maze_generate_rdfs(Maze *maze)
 {
-     maze_cell_remove_edge(maze, maze->in);
+     maze_remove_edge_wall(maze, maze->in);
      byte *stack[maze->width * maze->height];
      ptrdiff_t stack_loc = 0;
      stack[0] = maze->in;
      while(stack_loc >= 0) {
-         size_t direction, num_neighbors = 0, neighbor_directions[3];
+         size_t direction,
+            num_neighbors = 0,
+            neighbor_directions[3];
          byte *neighbors[3];
          for(direction = 0; direction < 4; direction++) {
              byte *cell = maze_get_cell_in_direction(maze, stack[stack_loc], direction);
              if(cell)
-                if(! (*cell && BITMASKS[V])) {
+                if(! VISITED(*cell)) {
                     neighbor_directions[num_neighbors] = direction;
                     neighbors[num_neighbors++] = cell;
                 }
          }
          if(num_neighbors) {
              size_t index = rand_int(num_neighbors);
-             *stack[stack_loc] |= BITMASKS[neighbor_directions[index]];
-             *neighbors[index] |= BITMASKS[INV_DIRECTIONS[neighbor_directions[index]]];
+             maze_remove_wall(stack[stack_loc], neighbors[index], neighbor_directions[index]);
              stack[++stack_loc] = neighbors[index];
          } else
             stack_loc--;
      }
-     maze_cell_remove_edge(maze, maze->out);
+     maze_remove_edge_wall(maze, maze->out);
 }
 
 //generate maze using Ranomized Prim's algorithm
 //has been modified to not select random walls but random walls from random visited cells
 void maze_generate_rprim(Maze *maze)
 {
-    maze_cell_remove_edge(maze, maze->in);
+    maze_remove_edge_wall(maze, maze->in);
     size_t list_size = 1;
     byte *list[maze->width * maze->height];
     list[0] = maze->in;
     while(list_size > 0) {
-        size_t list_loc = rand_int(list_size), direction, num_neighbors = 0, neighbor_directions[3];
+        size_t list_loc = rand_int(list_size),
+            num_neighbors = 0,
+            neighbor_directions[3],
+            direction;
         byte *neighbors[3];
         for(direction = 0; direction < 4; direction++) {
             byte *cell = maze_get_cell_in_direction(maze, list[list_loc], direction);
             if(cell)
-               if(! (*cell && BITMASKS[V])) {
+               if(! VISITED(*cell)) {
                    neighbor_directions[num_neighbors] = direction;
                    neighbors[num_neighbors++] = cell;
                }
         }
         if(num_neighbors) {
             size_t index = rand_int(num_neighbors);
-            *list[list_loc] |= BITMASKS[neighbor_directions[index]];
-            *neighbors[index] |= BITMASKS[INV_DIRECTIONS[neighbor_directions[index]]];
+            maze_remove_wall(list[list_loc], neighbors[index], neighbor_directions[index]);
             list[list_size++] = neighbors[index];
         } else
            memmove(&list[list_loc], &list[list_loc + 1], sizeof(byte*) * (list_size-- - list_loc));
     }
-    maze_cell_remove_edge(maze, maze->out);
+    maze_remove_edge_wall(maze, maze->out);
+}
+
+//generate maze using Aldous-Broder algorithm
+void maze_generate_aldous_broder(Maze *maze)
+{
+    maze_remove_edge_wall(maze, maze->in);
+    size_t remaining = maze->width * maze->height - 1;
+    byte *cell = maze->in;
+    while(remaining > 0) {
+        size_t direction;
+        byte *next_cell;
+        do {
+            direction = rand_int(4);
+            next_cell = maze_get_cell_in_direction(maze, cell, direction);
+        } while(! next_cell);
+        if(! VISITED(*next_cell)) {
+            maze_remove_wall(cell, next_cell, direction);
+            remaining--;
+        }
+        cell = next_cell;
+    }
+    maze_remove_edge_wall(maze, maze->out);
+}
+
+//generate maze using Wilson's algorithm
+//has been modified for the first visited cell to not be random, but to be the in and out cells
+void maze_generate_wilson(Maze *maze)
+{
+    maze_remove_edge_wall(maze, maze->in);
+    maze_remove_edge_wall(maze, maze->out);
+    size_t maze_size = maze->width * maze->height,
+        num_unvisited_cells = 0,
+        i;
+    byte *unvisited_cells[maze_size - 2],
+        walk_directions[maze_size];
+    for(i = 0; i < maze_size; i++)
+        if(! VISITED(maze->cells[i]))
+            unvisited_cells[num_unvisited_cells++] = &maze->cells[i];
+    while(num_unvisited_cells > 0) {
+        byte *start_cell = unvisited_cells[rand_int(num_unvisited_cells)],
+            *cell = start_cell;
+        do {
+            size_t direction;
+            byte *next_cell;
+            do {
+                direction = rand_int(4);
+                next_cell = maze_get_cell_in_direction(maze, cell, direction);
+            } while(! next_cell);
+            walk_directions[maze_get_cell_index(maze, cell)] = direction;
+            cell = next_cell;
+        } while(! VISITED(*cell));
+        byte *end_cell = cell;
+        cell = start_cell;
+        while(cell != end_cell) {
+            for(i = 0; i < num_unvisited_cells; i++)
+                if(unvisited_cells[i] == cell) {
+                    memmove(&unvisited_cells[i], &unvisited_cells[i + 1], sizeof(byte*) * (num_unvisited_cells-- - i));
+                    break;
+                }
+            size_t direction = walk_directions[maze_get_cell_index(maze, cell)];
+            byte *next_cell = maze_get_cell_in_direction(maze, cell, direction);
+            maze_remove_wall(cell, next_cell, direction);
+            cell = next_cell;
+        }
+    }
 }
 
 void maze_print(Maze *maze)
@@ -161,6 +240,10 @@ void maze_print(Maze *maze)
 
 void maze_save_image(Maze *maze, char *filename)
 {
+    size_t len = strlen(filename);
+    assert(len > 4);
+    assert(! strcmp(".pbm", filename + len - 4));
+
     FILE *file = fopen(filename, "wb");
     assert(file);
 
@@ -174,7 +257,7 @@ void maze_save_image(Maze *maze, char *filename)
     for(i = 0; i < img_height; i ++)
         memset(img[i], (i & 0x01) ? 0x00 : 0xaa, bytes_per_row);
 
-    //TODO: optimize this
+    //TODO: rewrite/optimize this
     //set cell sides
     for(i = 0; i < maze->height; i++)
         for(j = 0; j < maze->width; j++) {
@@ -196,13 +279,13 @@ int main(int argc, char *argv[])
     (void) argc;
     (void) argv;
 
-    srand(time(NULL));
     setlocale(LC_ALL, "");
+    srand(time(NULL));
 
     Maze *maze = maze_new(30, 30);
     maze->in = maze_get_cell(maze, 0, 1);
     maze->out = maze_get_cell(maze, 29, 28);
-    maze_generate_rprim(maze);
+    maze_generate_wilson(maze);
 
     maze_save_image(maze, "img.pbm");
     maze_print(maze);
